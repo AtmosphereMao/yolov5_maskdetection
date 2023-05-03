@@ -1,3 +1,6 @@
+import cv2
+
+import db_tool
 from models.experimental import *
 from utils.datasets import *
 from utils.general import *
@@ -7,6 +10,7 @@ app = Flask(__name__)
 
 WEIGHTS_PATH = "./runs/train/exp5/weights/best.pt"
 VIDEOS_PATH = "../DataSets/videos/facemask_detection.mp4"
+RESULT_SAVE_PATH = "../results/mask_detection/"
 
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
@@ -31,7 +35,6 @@ def transImg(img0, img_size=640):
 
 
 def gen_display():
-
     # 初始化设备
     device = torch.device('cuda:0')
 
@@ -43,6 +46,12 @@ def gen_display():
     names = model.module.names if hasattr(model, 'module') else model.names
     # 随机为不同的分类名称生成不同颜色
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
+
+    # 初始化Tracker
+    tracker = cv2.TrackerTLD_create()
+
+    # 初始化DB
+    db = db_tool.DB()
 
     capture = cv2.VideoCapture(0)
     # capture.open(VIDEOS_PATH)  # 加载视频
@@ -72,6 +81,15 @@ def gen_display():
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], frame.shape).round()
                 # 绘制预测结果
                 for *xyxy, conf, cls in det:
+                    temp = (int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3]))
+                    tracker.init(frame, temp)
+                    ok, bbox = tracker.update(frame)
+
+                    if not ok:  # 未检测过
+                        m = hashlib.md5(round(time.time()))
+                        path = RESULT_SAVE_PATH + m.hexdigest() + ".jpg"
+                        cv2.imwrite(path, frame[xyxy])
+
                     label = '%s %.2f' % (names[int(cls)], conf)
                     plot_one_box(xyxy, frame, label=label, color=colors[int(cls)], line_thickness=3)
                 """
@@ -87,8 +105,8 @@ def gen_display():
                            b'Content-Type: image/jpeg\r\n\r\n' + frame.tobytes() + b'\r\n')
 
 
-@app.route('/video_feed')
-def video_feed():
+@app.route('/detection')
+def detection():
     return Response(gen_display(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
     #         cv2.imshow("Face Mask Detection", frame)

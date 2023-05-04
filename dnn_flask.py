@@ -8,7 +8,7 @@ from flask import Flask, render_template, Response
 
 app = Flask(__name__)
 
-WEIGHTS_PATH = "./runs/train/exp5/weights/best.pt"
+WEIGHTS_PATH = "./runs/train/ghost/weights/best.pt"
 VIDEOS_PATH = "../DataSets/videos/facemask_detection.mp4"
 RESULT_SAVE_PATH = "../results/mask_detection/"
 
@@ -20,6 +20,10 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
+        if label == "no_mask":
+            label = "未佩戴口罩"
+        elif label == "mask":
+            label = "已佩戴口罩"
         tf = max(tl - 1, 1)  # font thickness
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
@@ -34,7 +38,7 @@ def transImg(img0, img_size=640):
     return img
 
 
-def gen_display():
+def gen_display(monitor_id):
     # 初始化设备
     device = torch.device('cuda:0')
 
@@ -53,11 +57,23 @@ def gen_display():
     # 初始化DB
     db = db_tool.DB()
 
-    capture = cv2.VideoCapture(0)
-    # capture.open(VIDEOS_PATH)  # 加载视频
+    if monitor_id == 1:
+        capture = cv2.VideoCapture()
+        capture.open(VIDEOS_PATH)  # 加载视频
+    else:
+        capture = cv2.VideoCapture(0)
+
+    i = 0
 
     while True:
         ret, frame = capture.read()
+
+        # 重置帧数
+        i += 1
+        if i == int(capture.get(cv2.CAP_PROP_FRAME_COUNT)):
+            i = 0
+            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
         if not ret:
             break
         img = transImg(frame)  # 改变图像尺寸大小、并BGR转RGB
@@ -82,13 +98,16 @@ def gen_display():
                 # 绘制预测结果
                 for *xyxy, conf, cls in det:
                     temp = (int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3]))
-                    tracker.init(frame, temp)
-                    ok, bbox = tracker.update(frame)
-
-                    if not ok:  # 未检测过
-                        m = hashlib.md5(round(time.time()))
-                        path = RESULT_SAVE_PATH + m.hexdigest() + ".jpg"
-                        cv2.imwrite(path, frame[xyxy])
+                    # tracker.init(frame, temp)
+                    # ok, bbox = tracker.update(frame)
+                    #
+                    # if not ok:  # 未检测过
+                    # if i % 5 == 0:
+                    #     signTimestamp = str(int(round(time.time() * 1000)))
+                    #     h = hashlib.md5()
+                    #     h.update(signTimestamp.encode(encoding='utf-8'))
+                    #     path = RESULT_SAVE_PATH + h.hexdigest() + ".jpg"
+                    #     cv2.imwrite(path, frame[int(xyxy[1]):int(xyxy[3]), int(xyxy[0]):int(xyxy[2])])
 
                     label = '%s %.2f' % (names[int(cls)], conf)
                     plot_one_box(xyxy, frame, label=label, color=colors[int(cls)], line_thickness=3)
@@ -105,9 +124,9 @@ def gen_display():
                            b'Content-Type: image/jpeg\r\n\r\n' + frame.tobytes() + b'\r\n')
 
 
-@app.route('/detection')
-def detection():
-    return Response(gen_display(),
+@app.route('/detection/<int:nid>')
+def detection(nid):
+    return Response(gen_display(nid),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
     #         cv2.imshow("Face Mask Detection", frame)
     #         k = cv2.waitKey(1) & 0xFF

@@ -12,6 +12,10 @@ WEIGHTS_PATH = "./runs/train/ghost/weights/best.pt"
 VIDEOS_PATH = "../DataSets/videos/facemask_detection.mp4"
 RESULT_SAVE_PATH = "../results/mask_detection/"
 
+font = cv2.FONT_HERSHEY_SIMPLEX
+font_scale = 1
+thickness = 4
+
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
@@ -20,15 +24,11 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
-        if label == "no_mask":
-            label = "未佩戴口罩"
-        elif label == "mask":
-            label = "已佩戴口罩"
         tf = max(tl - 1, 1)  # font thickness
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+        cv2.putText(img, label, (c1[0], c1[1] - 2), cv2.FONT_HERSHEY_SIMPLEX, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 
 def transImg(img0, img_size=640):
@@ -51,28 +51,20 @@ def gen_display(monitor_id):
     # 随机为不同的分类名称生成不同颜色
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
-    # 初始化Tracker
-    tracker = cv2.TrackerTLD_create()
+    # 初始化Tracker，避免重复检测
+    # tracker = cv2.TrackerTLD_create()
 
-    # 初始化DB
-    db = db_tool.DB()
+    # 初始化DB，用于存放记录数据
+    # db = db_tool.DB()
 
-    if monitor_id == 1:
-        capture = cv2.VideoCapture()
-        capture.open(VIDEOS_PATH)  # 加载视频
-    else:
-        capture = cv2.VideoCapture(0)
+    # 读取monitor_id对应的监控
+    capture = cv2.VideoCapture()
+    capture.open(VIDEOS_PATH)
 
-    i = 0
+    # i = 0
 
     while True:
         ret, frame = capture.read()
-
-        # 重置帧数
-        i += 1
-        if i == int(capture.get(cv2.CAP_PROP_FRAME_COUNT)):
-            i = 0
-            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         if not ret:
             break
@@ -93,21 +85,28 @@ def gen_display(monitor_id):
         # 预测结果可视化绘制
         for i, det in enumerate(pred):  # 遍历检测到的结果
             if det is not None and len(det):
-                # print("Face mask detection count: %i" % len(det))
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], frame.shape).round()
+
+                text = 'Face mask detection count: %i' % len(det)
+
+                (x, y), _ = cv2.getTextSize(text, font, font_scale, thickness)
+                # 将文字放在右上角，留出一定的边距
+                text_offset_x = frame.shape[1] - x - 10
+                text_offset_y = y + 10
+
                 # 绘制预测结果
                 for *xyxy, conf, cls in det:
-                    temp = (int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3]))
+                    # temp = (int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3]))
                     # tracker.init(frame, temp)
                     # ok, bbox = tracker.update(frame)
-                    #
+
                     # if not ok:  # 未检测过
-                    # if i % 5 == 0:
                     #     signTimestamp = str(int(round(time.time() * 1000)))
                     #     h = hashlib.md5()
-                    #     h.update(signTimestamp.encode(encoding='utf-8'))
+                    #     h.update(signTimestamp.encode(encoding='utf-8'))    # 对时间戳进行加密，形成唯一编号
                     #     path = RESULT_SAVE_PATH + h.hexdigest() + ".jpg"
-                    #     cv2.imwrite(path, frame[int(xyxy[1]):int(xyxy[3]), int(xyxy[0]):int(xyxy[2])])
+                    #     db.insertDetectionLog(path, monitor_id) # 写入detection_log表 img_path 图片路径 | monitor_id 监控ID
+                    #     cv2.imwrite(path, frame[int(xyxy[1]):int(xyxy[3]), int(xyxy[0]):int(xyxy[2])]) # 存储图片在本地
 
                     label = '%s %.2f' % (names[int(cls)], conf)
                     plot_one_box(xyxy, frame, label=label, color=colors[int(cls)], line_thickness=3)
@@ -116,6 +115,8 @@ def gen_display(monitor_id):
                 """
                 # 读取图片
                 # frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                # cv2.putText(frame, text, (text_offset_x, text_offset_y), font,
+                #             font_scale, (0, 0, 255), thickness)
                 # 将图片进行解码
                 ret, frame = cv2.imencode('.jpeg', frame)
                 if ret:
@@ -124,23 +125,17 @@ def gen_display(monitor_id):
                            b'Content-Type: image/jpeg\r\n\r\n' + frame.tobytes() + b'\r\n')
 
 
-@app.route('/detection/<int:nid>')
-def detection(nid):
-    return Response(gen_display(nid),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-    #         cv2.imshow("Face Mask Detection", frame)
-    #         k = cv2.waitKey(1) & 0xFF
-    #         if (k == 113):  # 按键 q 退出
-    #             break
-    #
-    # capture.release()
-    # cv2.destroyAllWindows()
-
 
 @app.route('/')
 def index():
     # return the rendered template
     return render_template("index.html")
+
+
+@app.route('/detection/<int:nid>')
+def detection(nid):
+    return Response(gen_display(nid),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 if __name__ == '__main__':

@@ -2,9 +2,9 @@
 
 对
 [YOLOv5](https://github.com/ultralytics/yolov5)
-进行MobileNets改进及加入注意力机制等优化，引入OpenCV对口罩佩戴进行检测的系统。
+进行 ~~MobileNets~~ GhostNet 改进及加入注意力机制Shuffle Attention等优化，引入OpenCV对口罩佩戴进行检测的系统。
 
-~~*此为毕设项目、暂未完成改进*~~
+~~*此为毕设项目、已完成改进*~~
 
 ## 数据集
 
@@ -25,4 +25,5 @@
     - `python train.py`
 
 - 运行检测
-    - `python dnn_test.py`
+    - `python dnn_test.py # 窗口版`
+    - `python dnn_flask.py # Web接口版`
